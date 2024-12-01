@@ -117,7 +117,6 @@ src/
 ### Bibliotecas Destacadas
 1. **Lombok**
     - @Data para getters/setters automáticos
-    - @Log para logging incorporado
     - @AllArgsConstructor/@NoArgsConstructor
 
 2. **Java Standard**
