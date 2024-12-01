@@ -25,8 +25,11 @@ El Sistema de Gestión de Concesionario es una aplicación Java diseñada para a
 - 🗑️ Eliminación de vehículos por ID
 - 📤 Exportación de datos a formato CSV
 - 💾 Persistencia automática de datos
+- 🔢 Sistema de ID autoincremental para garantizar unicidad
+
 
 ### Validaciones Implementadas
+- Sistema de ID autoincremental generación automática de IDs secuenciales
 - Control de IDs duplicados
 - Verificación de matrículas únicas
 - Validación de campos obligatorios
