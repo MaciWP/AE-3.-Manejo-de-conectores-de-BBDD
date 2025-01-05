@@ -1,181 +1,130 @@
 package service;
 
+import dao.CarDAO;
 import model.Car;
-import utils.Constants;
+import utils.DealershipExceptions.*;
 
-import java.io.*;
-import java.util.ArrayList;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
-/**
- * Service class for managing car operations including persistence and validation.
- * Handles CRUD operations, file persistence and CSV export functionality.
- */
-public class CarService {
-    private final List<Car> cars;
-    private int lastUsedId = 0;
+import static utils.Constants.*;
 
-    /**
-     * Initializes the car service and loads existing cars from file.
-     * Also initializes the last used ID.
-     */
-    public CarService() {
-        this.cars = new ArrayList<>();
-        loadFromFile();
-        initializeLastUsedId();
+public final class CarService {
+
+    private final CarDAO carDAO;
+
+    public CarService(CarDAO carDAO) {
+        this.carDAO = Objects.requireNonNull(carDAO, ERROR_NULL_DAO);
     }
 
-    /**
-     * Initializes lastUsedId based on existing cars.
-     */
-    private void initializeLastUsedId() {
-        lastUsedId = cars.stream()
-                .mapToInt(Car::getId)
-                .max()
-                .orElse(0);
-    }
+    public Car add(Car car) throws SQLException {
+        validateCarForInsert(car);
+        checkLicensePlateUniqueness(car.getLicensePlate());
 
-    /**
-     * Adds a new car to the system with auto-generated ID.
-     *
-     * @param car The car to be added (ID will be auto-generated)
-     * @throws IllegalArgumentException if the car is null or has duplicate license plate
-     */
-    public void add(Car car) {
-        if (car == null) {
-            throw new IllegalArgumentException(Constants.ERROR_NULL_CAR);
+        try {
+            return carDAO.insert(car);
+        } catch (SQLException e) {
+            throw new DatabaseException(
+                    String.format(ERROR_DATABASE, OPERATION_ADD, ENTITY_CAR), e);
         }
-        car.setId(++lastUsedId);
-        validateNewCar(car);
-        cars.add(car);
     }
 
-    /**
-     * Deletes a car by its ID.
-     *
-     * @param id The ID of the car to delete
-     * @return true if car was deleted, false if not found
-     * @throws IllegalArgumentException if the ID is null
-     */
+    public boolean update(Car car) {
+        validateCarForUpdate(car);
+
+        try {
+            Optional<Car> existingCar = carDAO.findById(car.getId());
+            if (existingCar.isEmpty()) {
+                throw new EntityNotFoundException(ENTITY_CAR, FIELD_ID, car.getId());
+            }
+
+            if (!existingCar.get().getLicensePlate().equals(car.getLicensePlate())) {
+                checkLicensePlateUniqueness(car.getLicensePlate());
+            }
+
+            return carDAO.update(car);
+        } catch (SQLException e) {
+            throw new DatabaseException(
+                    String.format(ERROR_DATABASE, OPERATION_UPDATE, ENTITY_CAR), e);
+        }
+    }
+
     public boolean deleteById(Integer id) {
-        if (id == null) {
-            throw new IllegalArgumentException(Constants.ERROR_NULL_ID);
+        validateId(id);
+
+        try {
+            return carDAO.delete(id);
+        } catch (SQLException e) {
+            throw new DatabaseException(
+                    String.format(ERROR_DATABASE, OPERATION_DELETE, ENTITY_CAR), e);
         }
-        return cars.removeIf(car -> car.getId().equals(id));
     }
 
-    /**
-     * Finds a car by its ID.
-     *
-     * @param id The ID to search for
-     * @return Optional containing the car if found
-     * @throws IllegalArgumentException if the ID is null
-     */
     public Optional<Car> findById(Integer id) {
-        if (id == null) {
-            throw new IllegalArgumentException(Constants.ERROR_NULL_ID);
+        validateId(id);
+
+        try {
+            return carDAO.findById(id);
+        } catch (SQLException e) {
+            throw new DatabaseException(
+                    String.format(ERROR_DATABASE, OPERATION_FIND, ENTITY_CAR), e);
         }
-        return cars.stream()
-                .filter(car -> car.getId().equals(id))
-                .findFirst();
     }
 
-    /**
-     * Returns a list of all cars in the system.
-     *
-     * @return List of all cars (copy of internal list)
-     */
     public List<Car> findAll() {
-        return new ArrayList<>(cars);
-    }
-
-    /**
-     * Exports all cars to a CSV file.
-     *
-     * @throws IOException if there's an error writing to the file
-     */
-    public void exportToCsv() throws IOException {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(Constants.CSV_FILE))) {
-            writer.println(Constants.CSV_HEADER);
-            for (Car car : cars) {
-                writer.println(car.toCsvFormat());
-            }
-        } catch (IOException e) {
-            System.err.println(Constants.ERROR_EXPORT_CSV + e.getMessage());
-            throw e;
+        try {
+            return carDAO.findAll();
+        } catch (SQLException e) {
+            throw new DatabaseException(
+                    String.format(ERROR_DATABASE, OPERATION_LIST, ENTITY_CAR), e);
         }
     }
 
-    /**
-     * Saves all cars to a binary file.
-     *
-     * @throws IOException if there's an error writing to the file
-     */
-    public void saveToFile() throws IOException {
-        try (ObjectOutputStream oos = new ObjectOutputStream(
-                new FileOutputStream(Constants.DATA_FILE))) {
-            oos.writeObject(cars);
-        } catch (IOException e) {
-            System.err.println(Constants.ERROR_SAVE_DATA + e.getMessage());
-            throw e;
+    private void validateCarForInsert(Car car) {
+        if (car == null) {
+            throw new ValidationException(ERROR_NULL_CAR);
         }
+        validateCarFields(car);
     }
 
-    /**
-     * Loads cars from the binary file if it exists.
-     * If the file doesn't exist or there's an error, starts with an empty list.
-     */
-    private void loadFromFile() {
-        File file = new File(Constants.DATA_FILE);
-        if (file.exists()) {
-            try (ObjectInputStream ois = new ObjectInputStream(
-                    new FileInputStream(file))) {
-                @SuppressWarnings("unchecked")
-                List<Car> loadedCars = (List<Car>) ois.readObject();
-                cars.addAll(loadedCars);
-            } catch (IOException | ClassNotFoundException e) {
-                System.err.println(Constants.ERROR_LOAD_DATA + e.getMessage());
-            }
-        }
+    private void validateCarForUpdate(Car car) {
+        validateCarForInsert(car);
+        validateId(car.getId());
     }
 
-    /**
-     * Validates a new car for duplicate ID and license plate.
-     *
-     * @param car The car to validate
-     * @throws IllegalArgumentException if validation fails
-     */
-    private void validateNewCar(Car car) {
+    private void validateCarFields(Car car) {
         if (car.getLicensePlate() == null || car.getLicensePlate().trim().isEmpty()) {
-            throw new IllegalArgumentException(Constants.ERROR_NULL_LICENSE);
+            throw new ValidationException(String.format(ERROR_EMPTY_FIELD, FIELD_LICENSE_PLATE));
         }
-        if (isIdDuplicated(car.getId())) {
-            throw new IllegalArgumentException(Constants.ERROR_ID_DUPLICATE);
+        if (!car.getLicensePlate().matches(LICENSE_PLATE_REGEX)) {
+            throw new ValidationException(ERROR_INVALID_LICENSE);
         }
-        if (isLicensePlateDuplicated(car.getLicensePlate())) {
-            throw new IllegalArgumentException(Constants.ERROR_LICENSE_DUPLICATE);
+        if (car.getBrand() == null || car.getBrand().trim().isEmpty()) {
+            throw new ValidationException(String.format(ERROR_EMPTY_FIELD, FIELD_BRAND));
+        }
+        if (car.getModel() == null || car.getModel().trim().isEmpty()) {
+            throw new ValidationException(String.format(ERROR_EMPTY_FIELD, FIELD_MODEL));
+        }
+        if (car.getColor() == null || car.getColor().trim().isEmpty()) {
+            throw new ValidationException(String.format(ERROR_EMPTY_FIELD, FIELD_COLOR));
         }
     }
 
-    /**
-     * Checks if an ID already exists in the system.
-     *
-     * @param id The ID to check
-     * @return true if ID exists, false otherwise
-     */
-    private boolean isIdDuplicated(Integer id) {
-        return cars.stream().anyMatch(c -> c.getId().equals(id));
+    private void validateId(Integer id) {
+        if (id == null) {
+            throw new ValidationException(String.format(ERROR_NULL_FIELD, FIELD_ID));
+        }
+        if (id <= 0) {
+            throw new ValidationException(ERROR_INVALID_ID);
+        }
     }
 
-    /**
-     * Checks if a license plate already exists in the system.
-     *
-     * @param licensePlate The license plate to check
-     * @return true if license plate exists, false otherwise
-     */
-    private boolean isLicensePlateDuplicated(String licensePlate) {
-        return cars.stream()
-                .anyMatch(c -> c.getLicensePlate().equalsIgnoreCase(licensePlate));
+    private void checkLicensePlateUniqueness(String licensePlate) throws SQLException {
+        if (carDAO.existsByLicensePlate(licensePlate)) {
+            throw new DuplicateKeyException(FIELD_LICENSE_PLATE, licensePlate,
+                    String.format(ERROR_DUPLICATE_LICENSE, licensePlate));
+        }
     }
 }
